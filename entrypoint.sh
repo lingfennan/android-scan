@@ -1,12 +1,12 @@
 #!/bin/bash
 cd /src/
 # run codeql 
-if [ -s cpp-db ];then
-	rm -r cpp-db
+if [ -s /src/source/cpp-db ];then
+	rm -r /src/source/cpp-db
 fi
 echo "Install the dependencies for compiling the repository"
 apt-get update -yqq
-apt-get install -yqq python3
+apt-get install -yqq python3 libncurses5
 update-alternatives --install /usr/bin/python python /usr/bin/python3 10
 export PATH=$PATH:/src/bin/
 repo --help
