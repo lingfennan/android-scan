@@ -1,0 +1,9 @@
+version: "3.5"
+
+services:
+  analyzer:
+    image: lingfennan/codeql-analyzer:latest
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh
+      - ./:/src/
+
