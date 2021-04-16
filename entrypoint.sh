@@ -12,8 +12,8 @@ source build/envsetup.sh
 export ALLOW_NINJA_ENV=true
 lunch aosp_arm-eng
 echo "Building the whole android project"
-m help
 m
+echo "Finished building the whole android project"
 
 cd /src/source/system/bt/
 rm -rf /src/source/out/soong/.glob/system/bt
