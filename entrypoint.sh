@@ -6,7 +6,7 @@ if [ -s /src/source/cpp-db ];then
 fi
 echo "Install the dependencies for compiling the repository"
 apt-get update -yqq
-apt-get install -yqq python3 libncurses5
+apt-get install -yqq python3 libncurses5 rsync
 update-alternatives --install /usr/bin/python python /usr/bin/python3 10
 export PATH=$PATH:/src/bin/
 repo --help
@@ -16,7 +16,7 @@ export ALLOW_NINJA_ENV=true
 lunch aosp_arm-eng
 
 echo "Create the codeql database for android"
-codeql database create cpp-db --language=cpp --command="/src/source/build/soong/soong_ui.bash --make-mode"
+codeql database create cpp-db --language=cpp --command="/src/source/build/soong/soong_ui.bash --make-mode -j32"
 CWE=$(ls -d /root/codeql-repo/cpp/ql/src/Security/CWE/* | grep -v CWE-020)
 codeql database analyze -j0 cpp-db $CWE --format=csv --output /src/cpp-security-results.csv
 
