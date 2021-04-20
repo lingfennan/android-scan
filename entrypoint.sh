@@ -47,3 +47,19 @@ echo "Run the queries to find results"
 CWE=$(ls -d /root/codeql-repo/cpp/ql/src/Security/CWE/* | grep -v CWE-020)
 codeql database analyze -j0 nfc-cpp-db $CWE --format=csv --output /src/nfc-cpp-security-results.csv
 
+cd /src/source/system/core/
+rm -rf /src/source/out/soong/.glob/system/core
+rm -rf /src/source/out/soong/.intermediates/system/core
+rm -rf core-cpp-db
+echo "Create the codeql database for core"
+codeql database create core-cpp-db --language=cpp --command="/src/source/build/soong/soong_ui.bash --make-mode -j28"
+echo "Run the queries to find results"
+# codeql database analyze -j0 core-cpp-db /root/codeql-repo/cpp/ql/src/Likely\ Bugs/ \
+# 	/root/codeql-repo/cpp/ql/src/Best\ Practices/ \
+# 	/root/codeql-repo/cpp/ql/src/Critical/ \
+# 	/root/codeql-repo/cpp/ql/src/experimental/ \
+# 	--format=csv --output /src/core-cpp-results.csv
+
+CWE=$(ls -d /root/codeql-repo/cpp/ql/src/Security/CWE/* | grep -v CWE-020)
+codeql database analyze -j0 core-cpp-db $CWE --format=csv --output /src/core-cpp-security-results.csv
+

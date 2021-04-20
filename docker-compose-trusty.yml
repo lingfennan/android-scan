@@ -1,9 +1,9 @@
 version: "3.5"
 
 services:
-  all_analyzer:
+  trusty_analyzer:
     image: lingfennan/codeql-analyzer:latest
     volumes:
-      - ./entrypoint_all.sh:/entrypoint.sh
+      - ./entrypoint_trusty.sh:/entrypoint.sh
       - ./:/src/
 
