@@ -6,4 +6,7 @@ services:
     volumes:
       - ./entrypoint.sh:/entrypoint.sh
       - ./:/src/
+    devices:
+      - /dev/kvm:/dev/kvm
+    privileged: true
 

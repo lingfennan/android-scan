@@ -3,17 +3,23 @@ cd /src/
 # run codeql 
 echo "Install the dependencies for compiling the repository"
 apt-get update -yqq
-apt-get install -yqq python3 libncurses5 rsync
+apt-get install -yqq python3 libncurses5 rsync libpulse0 libgl1-mesa-dev
 update-alternatives --install /usr/bin/python python /usr/bin/python3 10
 export PATH=$PATH:/src/bin/
 repo --help
 cd /src/source/
 source build/envsetup.sh
 export ALLOW_NINJA_ENV=true
-lunch aosp_arm-eng
+# lunch aosp_arm-eng
+# lunch aosp_arm64-eng
+# lunch aosp_x86_64-eng
+lunch sdk_phone_x86_64
 echo "Building the whole android project"
 m
 echo "Finished building the whole android project"
+tail -f /dev/null
+echo "done"
+exit 1
 
 cd /src/source/system/bt/
 rm -rf /src/source/out/soong/.glob/system/bt
