@@ -66,7 +66,9 @@ void* osi_calloc(size_t size) {
 
 For instance, let's take `osi_malloc` for example. In osi_malloc, if requested size is the size mentioned before (between MAX_SIZE_T - 16 <= size <= MAX_SIZE_T), the osi_malloc will allocate way less memory than expected and that would lead to illegal memory access and SIGSEGV. 
 
-To show the issue I am going to take easy route and modify the JNI mentioned on Android Bluetooth [documentation](https://source.android.com/devices/bluetooth). I am just doing this to make my point, as JNI is not part of the Fluoride BT stack, I assume it's fair to use it to trigger issue in Fluoride stack because it's a standalone Bluetooth stack, which could be used other OS than Android.  Also, on the side note this JNI function could be called by an application leading to the same effects.
+To show the issue I am going to take an easy route and modify the JNI mentioned on Android Bluetooth [documentation](https://source.android.com/devices/bluetooth). I am just doing this to make my point, as JNI is not part of the Fluoride BT stack, I assume it's fair to use it to trigger issue in Fluoride stack because it's a standalone Bluetooth stack, which could be used in OS other than Android. We consider two attack models:
+1. Attack from an app on the same host. The attacker app on the same host could register a SDP record with a very long name against the Fluoride BT stack, which could crash the BT service and causing Denial of Service.
+2. Attack from another bluetooth device. The attacker (i.e. SDP client) can abuse the Service Discovery Protocol by sending a very long name against the vulnerable device (i.e. SDP server) and crash the BT service and cause Denial of Service.
 
 The issue could be triggered in one way by doing this: in the Android source code, in the file `packages/apps/Bluetooth/jni/com_android_bluetooth_sdp.cpp` available [here](https://android.googlesource.com/platform/packages/apps/Bluetooth/+/refs/heads/master/jni/com_android_bluetooth_sdp.cpp#409), which is part of JNI not Fluoride BT stack, in the function `sdpCreateOppOpsRecordNative` - change the length to between `MAX_SIZE_T - 16` - `MAX_SIZE_T`. Making this change will trigger the issue in `osi_malloc` of Fluoride BT stack, which is used prolifically in the stack. For an instance to show the change in `com_android_bluetooth_sdp.cpp` to trigger the issue, see below:
 ```
@@ -83,7 +85,7 @@ static jint sdpCreateOppOpsRecordNative(JNIEnv* env, jobject obj,
     service_name = env->GetStringUTFChars(name_str, NULL);
     record.ops.hdr.service_name = (char*)service_name;
     record.ops.hdr.service_name_length = strlen(service_name);
-    record.ops.hdr.service_name_length = 0xFFFFFFF2; <------------------------
+    record.ops.hdr.service_name_length = 0xFFFFFFF2; <------------ this is the change ----------------
   } else {
     record.ops.hdr.service_name = NULL;
     record.ops.hdr.service_name_length = 0;
@@ -117,7 +119,7 @@ static jint sdpCreateOppOpsRecordNative(JNIEnv* env, jobject obj,
  
 I am also providing the modified files that could be used to replace the original files to produce the issue and generate appropriate logs to show the problem. Provided modified files are from Fluoride BT stack as well, but these files are only modified to add logs and they don't change any implementation logic of the stack. I hope I make it clear. You can see the changes after copying the new files with command `repo diff` on `system/bt` in AOSP source code directory, you would only see log related changes.
 
-As I mentioned before com_android_bluetooth_sdp.cpp is modified to trigger the issue . This change will trigger the issue as `sdpCreateOppOpsRecordNative` calls the `create_sdp_record` API of the Fluoride BT stack as `sBluetoothSdpInterface->create_sdp_record(&record, &handle);`. This takes control flow to function `create_sdp_record` in file [system/bt//btif/src/btif_sdp_server.cc](https://android.googlesource.com/platform/system/bt/+/refs/heads/master/btif/src/btif_sdp_server.cc#272) in BT stack. All the code mentioned below now onwards is part of the stack.
+As I mentioned before `com_android_bluetooth_sdp.cpp` is modified to trigger the issue . This change will trigger the issue as `sdpCreateOppOpsRecordNative` calls the `create_sdp_record` API of the Fluoride BT stack as `sBluetoothSdpInterface->create_sdp_record(&record, &handle);`. This takes control flow to function `create_sdp_record` in file [system/bt//btif/src/btif_sdp_server.cc](https://android.googlesource.com/platform/system/bt/+/refs/heads/master/btif/src/btif_sdp_server.cc#272) in BT stack. All the code mentioned below now onwards is part of the stack.
 
 ```
 bt_status_t create_sdp_record(bluetooth_sdp_record* record,
@@ -179,7 +181,7 @@ int get_sdp_records_size(bluetooth_sdp_record* in_record, int count) {
 }
 ```
 
-Another important thing to note is `record_size` is of type `signed int` and `osi_malloc` takes `size_t`. As per the upcasting rule in C which says: for signed to unsigned types, it sign-extends, then casts; this cannot always preserve the value, as a negative value cannot be represented with unsigned types. So, if record_size is more than 0x0FFFFFFF (more than max of signed int or -ve) - by the rule of upcasting it will be converted by padding `FF` on MSB. It's a bigger problem because if `osi_malloc` is called from a piece code inside the stack that uses a `signed short`, -ve value in the short would introduce the same issue, causing integer overflow and allocating lesser than intended memory.
+Another important thing to note is `record_size` is of type `signed int` and `osi_malloc` takes `size_t`. As per the upcasting rule in C which says: for signed to unsigned types, it sign-extends, then casts; this cannot always preserve the value, as a negative value cannot be represented with unsigned types. So, if record_size is more than 0x0FFFFFFF (more than max of signed int or -ve) - by the rule of upcasting it will be converted by padding `FF` on MSB (most significant bit). It's a bigger problem because if `osi_malloc` is called from a piece code inside the stack that uses a `signed short`, -ve value in the short variable would introduce the same issue, causing integer overflow and allocating lesser than intended memory.
 
 
 To produce the issue follow below step:
@@ -203,7 +205,7 @@ m
 5. Once build is finished, launch emulator to run the changes inside the emulator with command `emulator` from same terminal where commands mentioned in step 4 were executed. If you are using different terminal use the all commands in step 4 except the last one `m` on the new terminal, that would make the `emulator` command available.
 6. Open shell inside the terminal with command `adb shell`
 7. Run the command `svc bluetooth enable` to make sure Bluetooth is on
-7. In the emulator shell fire command `logcat -f /data/log.out` and let it run for a minute then exit ctrl + c key press
+7. In the emulator shell fire command `logcat -f /data/log.out` and let it run for a minute then exit by `ctrl + c` key press
 8. Exit from the emulator shell with `exit` command
 9. Pull the log file out with `adb pull /data/log.out`
 10. Open the file and search for `sdpCreateOppOpsRecordNative` and you can see `libc    : Fatal signal 11 (SIGSEGV), code 2 (SEGV_ACCERR), fault addr 0x7fef195d4000 in tid 1306 (droid.bluetooth), pid 1306 (droid.bluetooth)` few lines below.
