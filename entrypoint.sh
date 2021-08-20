@@ -5,6 +5,7 @@ echo "Install the dependencies for compiling the repository"
 apt-get update -yqq
 apt-get install -yqq python3 libncurses5 rsync libpulse0 libgl1-mesa-dev
 update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+apt-get install install gcc-multilib g++-multilib libc6-dev-i386
 export PATH=$PATH:/src/bin/
 repo --help
 cd /src/source/
