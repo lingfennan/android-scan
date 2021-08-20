@@ -1,34 +1,8 @@
-[After reading the following instructions please enter the report details and attach applicable files]
-
-*** This form is for reporting security bugs found in the Android Platform ***
-
-*** A complete bug report must reproduce on the latest release of a supported Android branch, and should include applicable items as listed in:
-
-https://sites.google.com/site/bughunteruniversity/improve/how-to-submit-an-android-platform-bug-report 
-
-*** If this security issue qualifies for a fix to be included in security bulletin, we'd like to recognize your contribution. Please let us know how you would like your name and information to appear.
-
-*** Submitted CTS tests and patches must apply cleanly to AOSP's master branch, comply with Coding Style Guidelines, and be accepted by Android Engineering as the most appropriate  fix.
-
-*** If this report meets the rewards criteria, the reward amount will depend on the severity of the vulnerability and the quality of the report. 
-
-Bugs filed using this form will be visible to the bug reporter, Google Android developers, and where appropriate Android hardware partners. Once the bug has been evaluated or resolved, it may become publicly accessible. Please do not include sensitive information that you do not want to become public.
-
-Android Security Bugs and Severity Guidelines
-http://source.android.com/devices/tech/security/overview/updates-resources.html#report-issues 
-
-Android Vulnerability Rewards Program
-https://www.google.com/about/appsecurity/android-rewards/
-
-
-
-==============================================================================
-
-
+# Description of the vulnerability
 
 This issue is related to Fluoride Bluetooth stack in Android, which is located at **system/bt** in AOSP.  The description of stack can be found at Android documentation at [Android Bluetooth](https://source.android.com/devices/bluetooth). Source code for the stack is available [here](https://android.googlesource.com/platform/system/bt/+/refs/heads/master).
 
-Issue is in the function `allocation_tracker_resize_for_canary` in the file [system/bt/osi/src/allocation_tracker.cc](https://android.googlesource.com/platform/system/bt/+/refs/heads/master/osi/src/allocation_tracker.cc#173), see the code definition below:
+Issue is in the function `allocation_tracker_resize_for_canary` in the file [system/bt/osi/src/allocation_tracker.cc](https://android.googlesource.com/platform/system/bt/+/refs/heads/master/osi/src/allocation_tracker.cc#173), see the function definition below:
 
 ```
 172 size_t allocation_tracker_resize_for_canary(size_t size) {
@@ -43,7 +17,7 @@ In the same file at line 40 `canary_size` is defined to constant size of 8:
 
 At line 173, if `enabled` is set to be true (or 1 in C language) `size` in the function could lead to integer overflow. `enabled` is set to true in most recent Android Bluetooth stack.
 
-Let's say maximum integer value possible to be stored in `size_t` is `MAX_SIZE_T`. `size_t` is an unsigned integer, at least of 16 bits but it's actual value is platform dependent, i.e. it's going to be maximum value stored in unsigned int on 32 bit platform (0xFFFFFFFF) and unsigned long on 64 bit platform (0xFFFFFFFFFFFFFFFF). In the function `allocation_tracker_resize_for_canary` if passed `size` is between MAX_SIZE_T - 16 <= size <= MAX_SIZE_T, then `allocation_tracker_resize_for_canary` will return size between 0 - 16. 
+Let's say maximum integer value possible to be stored in `size_t` is `MAX_SIZE_T`. `size_t` is an unsigned integer, at least of 16 bits but it's actual value is platform dependent, i.e. it's going to be maximum value stored in unsigned int on 32 bit platform (0xFFFFFFFF) and unsigned long on 64 bit platform (0xFFFFFFFFFFFFFFFF). In the function `allocation_tracker_resize_for_canary` if passed `size` is between MAX_SIZE_T - 16 < size <= MAX_SIZE_T, then `allocation_tracker_resize_for_canary` will return size between 0 - 15. 
 
 `allocation_tracker_resize_for_canary` is used in malloc and calloc wrapper in the Bluetooth stack `osi_malloc` and `osi_calloc`, see osi_malloc code below in file [osi/src/allocator.cc](https://android.googlesource.com/platform/system/bt/+/refs/heads/master/osi/src/allocator.cc#59)
 ```
@@ -64,13 +38,16 @@ void* osi_calloc(size_t size) {
 }
 ```
 
-For instance, let's take `osi_malloc` for example. In osi_malloc, if requested size is the size mentioned before (between MAX_SIZE_T - 16 <= size <= MAX_SIZE_T), the osi_malloc will allocate way less memory than expected and that would lead to illegal memory access and SIGSEGV. 
+For instance, let's take `osi_malloc` for example. In osi_malloc, if requested size is the size mentioned before (between MAX_SIZE_T - 16 < size <= MAX_SIZE_T), the osi_malloc will allocate way less memory than expected and that would lead to illegal memory access and SIGSEGV. 
 
-To show the issue I am going to take an easy route and modify the JNI mentioned on Android Bluetooth [documentation](https://source.android.com/devices/bluetooth). I am just doing this to make my point, as JNI is not part of the Fluoride BT stack, I assume it's fair to use it to trigger issue in Fluoride stack because it's a standalone Bluetooth stack, which could be used in OS other than Android. We consider two attack models:
-1. Attack from an app on the same host. The attacker app on the same host could register a SDP record with a very long name against the Fluoride BT stack, which could crash the BT service and causing Denial of Service.
-2. Attack from another bluetooth device. The attacker (i.e. SDP client) can abuse the Service Discovery Protocol by sending a very long name against the vulnerable device (i.e. SDP server) and crash the BT service and cause Denial of Service.
 
-The issue could be triggered in one way by doing this: in the Android source code, in the file `packages/apps/Bluetooth/jni/com_android_bluetooth_sdp.cpp` available [here](https://android.googlesource.com/platform/packages/apps/Bluetooth/+/refs/heads/master/jni/com_android_bluetooth_sdp.cpp#409), which is part of JNI not Fluoride BT stack, in the function `sdpCreateOppOpsRecordNative` - change the length to between `MAX_SIZE_T - 16` - `MAX_SIZE_T`. Making this change will trigger the issue in `osi_malloc` of Fluoride BT stack, which is used prolifically in the stack. For an instance to show the change in `com_android_bluetooth_sdp.cpp` to trigger the issue, see below:
+# Attack models and steps to reproduce the vulnerability
+
+To show the issue I am going to take an easy route and modify the JNI mentioned on Android Bluetooth [documentation](https://source.android.com/devices/bluetooth). I am just doing this to make my point, as JNI is not part of the Fluoride BT stack, I assume it's fair to use it to trigger issue in Fluoride stack because it's a standalone Bluetooth stack, which could be used in OS other than Android. I consider two attack models:
+1. Attack from an app on the same host. The attacker app on the same host could register a SDP record with a very long name against the Fluoride BT stack, which could crash the BT service and cause denial-of-service.
+2. Attack from another bluetooth device. The attacker (i.e. SDP client) can abuse the Service Discovery Protocol by sending a very long name against the vulnerable device (i.e. SDP server) and crash the BT service and cause denial-of-service.
+
+The issue could be triggered in one way by doing this: in the Android source code, in the file `packages/apps/Bluetooth/jni/com_android_bluetooth_sdp.cpp` available [here](https://android.googlesource.com/platform/packages/apps/Bluetooth/+/refs/heads/master/jni/com_android_bluetooth_sdp.cpp#409), which is part of JNI not Fluoride BT stack, in the function `sdpCreateOppOpsRecordNative` - change the service name length to between `MAX_SIZE_T - 16` - `MAX_SIZE_T`. Making this change will trigger the issue in `osi_malloc` of Fluoride BT stack, which is used prolifically in the stack. For an instance to show the change in `com_android_bluetooth_sdp.cpp` to trigger the issue, see below:
 ```
 static jint sdpCreateOppOpsRecordNative(JNIEnv* env, jobject obj,
                                         jstring name_str, jint scn,
@@ -159,7 +136,7 @@ static int alloc_sdp_slot(bluetooth_sdp_record* in_record) {
 }
 ```
 
-alloc_sdp_slot calls [get_sdp_records_size](https://android.googlesource.com/platform/system/bt/+/refs/heads/master/btif/src/btif_sdp_server.cc#123) to calculate the size of incoming to allocate proper space to make a copy of the record. `get_sdp_records_size` uses the service_name_length to calculate the size of buffer going to store the SDP record. If there is a huge service_name_length between `MAX_SIZE_T - 16` - `MAX_SIZE_T`, that will trigger the issue without my change in the `com_android_bluetooth_sdp.cpp`.
+alloc_sdp_slot calls [get_sdp_records_size](https://android.googlesource.com/platform/system/bt/+/refs/heads/master/btif/src/btif_sdp_server.cc#123) to calculate the size of incoming to allocate proper space to make a copy of the record. `get_sdp_records_size` uses the service_name_length to calculate the size of buffer going to store the SDP record. If there is a huge service_name_length between `MAX_SIZE_T - 16` - `MAX_SIZE_T`, then it will cause the `osi_malloc` to return a very small buffer between `0` - `15`. Then the function `copy_sdp_records` will try to copy `in_record` which has a large size into `record` which has a very small size and cause invalid memory access. Note that, my change in the `com_android_bluetooth_sdp.cpp` is only a shortcut to create a large `in_record`, if the attacker pass in a large SDP record, the invalid memory access issue will occur in the BT stack.
 
 
 ```
@@ -184,11 +161,11 @@ int get_sdp_records_size(bluetooth_sdp_record* in_record, int count) {
 Another important thing to note is `record_size` is of type `signed int` and `osi_malloc` takes `size_t`. As per the upcasting rule in C which says: for signed to unsigned types, it sign-extends, then casts; this cannot always preserve the value, as a negative value cannot be represented with unsigned types. So, if record_size is more than 0x0FFFFFFF (more than max of signed int or -ve) - by the rule of upcasting it will be converted by padding `FF` on MSB (most significant bit). It's a bigger problem because if `osi_malloc` is called from a piece code inside the stack that uses a `signed short`, -ve value in the short variable would introduce the same issue, causing integer overflow and allocating lesser than intended memory.
 
 
-To produce the issue follow below step:
+To produce the issue, follow below steps:
 
 1. Download the AOSP source code as described [here](https://source.android.com/setup/build/downloading)
 
-2. Replace the attache files as mentioned below:
+2. Replace the attached files as mentioned below:
 ```
 com_android_bluetooth_sdp.cpp -> packages/apps/Bluetooth/jni/com_android_bluetooth_sdp.cpp
 btif_sdp_server.cc -> system/bt/btif/src/btif_sdp_server.cc
@@ -211,3 +188,10 @@ m
 10. Open the file and search for `sdpCreateOppOpsRecordNative` and you can see `libc    : Fatal signal 11 (SIGSEGV), code 2 (SEGV_ACCERR), fault addr 0x7fef195d4000 in tid 1306 (droid.bluetooth), pid 1306 (droid.bluetooth)` few lines below.
 
 
+# Proposed patches
+The patch is relatively simple: just add sanity size checks in `osi_malloc` and `osi_calloc` to exclude sizes that could lead to integer overflow.
+
+
+# Credits for this vulnerability
+- Vijay Prakash, Palo Alto Networks Inc
+- Ruian Duan, Palo Alto Networks Inc
